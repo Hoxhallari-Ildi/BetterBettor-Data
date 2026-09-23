@@ -1,15 +1,10 @@
-import asyncio
-from understat import Understat
-import aiohttp
+from understatapi import UnderstatClient
 
-async def main():
-    async with aiohttp.ClientSession() as session:
-        understat = Understat(session)
+team = "Manchester_United"
+season = "2026"
 
-        data = await understat.get_player_stats(
-            player_id=2097,
-        )
+with UnderstatClient() as understat:
+    matches = understat.team(team).get_match_data(season=season)
 
-        print(data)
-
-asyncio.run(main())
+games_played = len([match for match in matches if match["isResult"] is True])
+print(f"{team} played {games_played} games in the {season} season.")

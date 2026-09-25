@@ -129,6 +129,9 @@ Rodina
 import pandas as pd
 from understatapi import UnderstatClient
 
+season = 2026
+team = "Arsenal"
+
 
 def get_last_n_matches(team, season, n):
 
@@ -157,13 +160,12 @@ def get_last_n_matches(team, season, n):
 
     return pd.DataFrame(matches_data[:n]).iloc[::-1].reset_index(drop=True)
 
-df = get_last_n_matches(team="Manchester_United", season="2026", n=11)
+df = get_last_n_matches(team=team, season=season, n=10)
 
 ##############################################################################################
 
 with UnderstatClient() as understat:
-
-    shots = understat.match("29100").get_shot_data()
+    shots = understat.match("31216").get_shot_data()
 
 shot_rows = []
 for side, team_shots in shots.items():
@@ -173,24 +175,44 @@ for side, team_shots in shots.items():
         shot_rows.append(row)
 
 shots_df = pd.DataFrame(shot_rows)
+shots_df['goal'] = (shots_df['result'] == 'Goal').astype(int)
+shots_df["npxGF"] = shots_df["xG"].where(shots_df["situation"] != "Penalty", 0).astype(float)
+shots_df["team"] = shots_df["h_team"].where(shots_df["h_a"] == "h", shots_df["a_team"])
+shots_df["opponent"] = shots_df["h_team"].where(shots_df["h_a"] == "a", shots_df["a_team"])
 shots_df = shots_df[
     [
         'match_id',
         'player_id',
         'player',
+        'team', 
+        'opponent',
         'h_a',
-        'h_team',
-        'a_team',
         'situation',
         'xG',
-        'result'
+        'npxGF',
+        'result',
+        'goal'
     ]
 ]
 
-print(shots_df)
+shots_df[["xG", "player_id", "match_id"]] = shots_df[["xG", "player_id", "match_id"]].apply(
+    pd.to_numeric,
+    errors="coerce"
+)
+
+result = (shots_df.groupby(["match_id", "player_id", "player", "h_a", 'team', 'opponent'], as_index=False)
+    .agg(
+        shots=("xG", "count"),
+        GF=("goal", "sum"),
+        xGF=("xG", "sum"),
+        npxGF=('npxGF', 'sum')
+    )
+)
+
+##############################################################################################
 
 with UnderstatClient() as understat:
-    match = understat.match("29100")
+    match = understat.match("31216")
     player_stats = match.get_roster_data()
 
     player_rows = []
@@ -206,7 +228,7 @@ player_df = player_df[
     ['player_id', 
      'player', 
      'position',
-      'h_a', 
+      'h_a',
       'time', 
       'own_goals',  
       'yellow_card', 
@@ -217,3 +239,29 @@ player_df = player_df[
       'xGChain',
       'xGBuildup']
 ]
+
+player_df[["player_id", "time", 'own_goals', 'yellow_card', 'red_card', 'key_passes', 'assists', 'xA', 
+    'xGChain', 'xGBuildup']] = player_df[["player_id", "time", 'own_goals', 'yellow_card', 'red_card', 
+    'key_passes', 'assists', 'xA', 
+    'xGChain', 'xGBuildup']].apply(
+    pd.to_numeric,
+    errors="coerce"
+)
+
+##############################################################################################
+
+merged_df = player_df.merge(result,
+    on=["player_id", "player", "h_a"],
+    how="left"
+)
+
+merged_df = merged_df[['match_id', 'player_id', 'player', 'position', 'team', 'opponent', 'h_a', 'time',
+                        'own_goals', 'yellow_card', 'red_card',	'key_passes', 'assists', 'xA',
+                        'xGChain', 'xGBuildup', 'shots', 'GF', 'xGF', 'npxGF']]
+
+merged_df["match_id"] = merged_df["match_id"].fillna(merged_df["match_id"].dropna().iloc[0])
+merged_df[["team", "opponent"]] = (merged_df.groupby(["match_id", "h_a"])[["team", "opponent"]]
+                                   .transform("first"))
+merged_df[["shots", "GF", "xGF", "npxGF"]] = merged_df[["shots", "GF", "xGF", "npxGF"]].fillna(0)
+
+print(merged_df)

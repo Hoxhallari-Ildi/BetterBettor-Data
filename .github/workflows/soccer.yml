@@ -151,9 +151,17 @@ on:
         default: "5"
         type: number
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
 jobs:
   generate:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
 
     steps:
       - name: Checkout repository
@@ -180,9 +188,44 @@ jobs:
             --n-matches "${{ inputs.n_matches }}" \
             --opponent-n-matches "${{ inputs.opponent_n_matches }}"
 
-      - name: Upload generated CSVs
+      - name: Check CSVs were generated
+        run: |
+          ls -lh output/*.csv
+
+      - name: Create a download page
+        run: |
+          python - <<'PY'
+          from html import escape
+          from pathlib import Path
+
+          files = sorted(Path("output").glob("*.csv"))
+          links = "\n".join(
+              f'<li><a href="{escape(p.name, quote=True)}">{escape(p.name)}</a></li>'
+              for p in files
+          )
+          Path("output/index.html").write_text(
+              f"<!doctype html><html><head><meta charset='utf-8'>"
+              f"<title>Soccer CSVs</title></head><body>"
+              f"<h1>Soccer CSVs</h1><ul>{links}</ul></body></html>",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Upload generated CSVs as Actions artifact
         uses: actions/upload-artifact@v4
         with:
           name: data
           path: output/*.csv
           retention-days: 1
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload site to GitHub Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: output
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4      

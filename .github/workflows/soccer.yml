@@ -142,7 +142,7 @@ on:
       n_matches:
         description: "Number of recent matches"
         required: true
-        default: "4"
+        default: "3"
         type: string
 
       opponent_n_matches:

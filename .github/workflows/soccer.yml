@@ -16,10 +16,10 @@ on:
         type: choice
         options:
           - EPL
-          - La Liga
+          - La_Liga
           - Bundesliga
-          - Serie A
-          - Ligue 1
+          - Serie_A
+          - Ligue_1
           - RFPL
 
       team:

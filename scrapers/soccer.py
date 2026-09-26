@@ -10,8 +10,8 @@ from understatapi import UnderstatClient
 # ============================================================
 
 DEFAULT_SEASON = 2026
-DEFAULT_TEAM = "Arsenal"
-DEFAULT_LEAGUE = 'EPL'
+DEFAULT_TEAM = "Paris FC"
+DEFAULT_LEAGUE = 'Ligue_1'
 DEFAULT_N_MATCHES = 3
 DEFAULT_OPPONENT_N_MATCHES = 10
 

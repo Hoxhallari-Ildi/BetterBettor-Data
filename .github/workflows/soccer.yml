@@ -9,6 +9,19 @@ on:
         default: "2026"
         type: string
 
+      league:
+        description: "League"
+        required: true
+        default: "EPL"
+        type: choice
+        options:
+          - EPL
+          - La Liga
+          - Bundesliga
+          - Serie A
+          - Ligue 1
+          - RFPL
+
       team:
         description: "Team"
         required: true

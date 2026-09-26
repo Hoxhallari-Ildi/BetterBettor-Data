@@ -11,8 +11,9 @@ from understatapi import UnderstatClient
 
 DEFAULT_SEASON = 2026
 DEFAULT_TEAM = "Arsenal"
-DEFAULT_N_MATCHES = 5
-DEFAULT_OPPONENT_N_MATCHES = 5
+DEFAULT_LEAGUE = 'EPL'
+DEFAULT_N_MATCHES = 3
+DEFAULT_OPPONENT_N_MATCHES = 10
 
 POSITION_MAP = {
 
@@ -118,10 +119,10 @@ def get_last_n_matches(
 ):
 
     matches_data = []
-
     current_season = int(season)
+    min_season = current_season - 2 
 
-    while len(matches_data) < n:
+    while len(matches_data) < n and current_season >= min_season:
 
         print(
             f"Getting match list for season "
@@ -426,6 +427,7 @@ def get_previous_matches(
 def get_league_history_for_season(
     season,
     team,
+    league_name,
 ):
     """
     Get PPDA history for a team for one Understat season.
@@ -436,7 +438,7 @@ def get_league_history_for_season(
         f"{season} ({team})..."
     )
 
-    league = understat.league("EPL")
+    league = understat.league(league_name)
 
     try:
 
@@ -498,6 +500,7 @@ def get_league_history_for_season(
 def get_league_history(
     matches,
     team,
+    league_name,
 ):
     """
     Get league history for every Understat season represented
@@ -518,6 +521,7 @@ def get_league_history(
         history = get_league_history_for_season(
             season,
             team,
+            league_name,
         )
 
         if not history.empty:
@@ -1155,7 +1159,8 @@ def build_team_match_baseline(
 def get_opponent_baselines(
     matches,
     main_team,
-    n=5,
+    league_name,
+    n,
 ):
     """
     For every opponent faced by main_team, get that opponent's
@@ -1216,6 +1221,7 @@ def get_opponent_baselines(
             history = get_league_history_for_season(
                 season,
                 opponent,
+                league_name,
             )
 
             if not history.empty:
@@ -1473,6 +1479,7 @@ def get_last_n_match_baselines(
     season,
     n,
     opponent_n_matches,
+    league_name,
 ):
 
     # --------------------------------------------------------
@@ -1500,6 +1507,7 @@ def get_last_n_match_baselines(
     league_history = get_league_history(
         matches,
         team,
+        league_name,
     )
 
     # --------------------------------------------------------
@@ -1722,6 +1730,7 @@ def get_last_n_match_baselines(
             matches=matches,
             main_team=team,
             n=opponent_n_matches,
+            league_name=league_name,
         )
     )
 
@@ -1754,6 +1763,12 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--league",
+        type=str,
+        default=DEFAULT_LEAGUE,
+    )
+
+    parser.add_argument(
         "--n-matches",
         type=int,
         default=DEFAULT_N_MATCHES,
@@ -1778,6 +1793,7 @@ df, player_df, opponent_df = (
     get_last_n_match_baselines(
         team=args.team,
         season=args.season,
+        league_name=args.league,
         n=args.n_matches,
         opponent_n_matches=args.opponent_n_matches,
     )

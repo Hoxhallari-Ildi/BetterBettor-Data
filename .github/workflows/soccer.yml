@@ -148,7 +148,7 @@ on:
       opponent_n_matches:
         description: "Number of previous opponent matches"
         required: true
-        default: "5"
+        default: "10"
         type: string
 
 permissions:

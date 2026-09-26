@@ -186,10 +186,3 @@ jobs:
           name: data
           path: output/*.csv
           retention-days: 1
-
-      - name: Add artifact link to summary
-        run: |
-          echo "## Generated Data" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "[Download data artifact](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)" >> "$GITHUB_STEP_SUMMARY"
-

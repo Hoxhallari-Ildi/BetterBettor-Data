@@ -211,13 +211,6 @@ jobs:
           )
           PY
 
-      - name: Upload generated CSVs as Actions artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: data
-          path: output/*.csv
-          retention-days: 1
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
 

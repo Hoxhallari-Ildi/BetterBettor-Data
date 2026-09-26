@@ -45,6 +45,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create output directory
+        run: mkdir -p output
+
       - name: Load Data
         run: |
           python scrapers/soccer.py \

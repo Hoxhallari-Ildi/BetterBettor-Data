@@ -7,7 +7,7 @@ on:
         description: "Season (2026 -> 2026/27)"
         required: true
         default: "2026"
-        type: string
+        type: number
 
       team:
         description: "Team"
@@ -143,13 +143,13 @@ on:
         description: "Number of recent matches"
         required: true
         default: "5"
-        type: string
+        type: number
 
       opponent_n_matches:
         description: "Number of previous opponent matches"
         required: true
         default: "5"
-        type: string
+        type: number
 
 jobs:
   generate:

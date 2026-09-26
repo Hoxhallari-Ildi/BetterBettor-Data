@@ -1,132 +1,5 @@
-"""
-Season: '2026' (2026/27)
-
-EPL
-Aston Villa
-Everton
-Bournemouth
-Sunderland
-Crystal Palace
-Chelsea
-Tottenham
-Arsenal
-Newcastle United
-Liverpool
-Manchester City
-Manchester United
-Hull
-Brighton
-Fulham
-Brentford
-Leeds
-Nottingham Forest
-Ipswich
-Coventry
-
-La_Liga
-Malaga
-Sevilla
-Deportivo La Coruna
-Real Sociedad
-Espanyol
-Getafe
-Atletico Madrid
-Rayo Vallecano
-Valencia
-Athletic Club
-Barcelona
-Real Madrid
-Levante
-Celta Vigo
-Real Betis
-Villarreal
-Osasuna
-Alaves
-Elche
-Racing Santander
-
-Bundesliga
-Bayern Munich
-Hamburger SV
-Bayer Leverkusen
-Hoffenheim
-Augsburg
-Werder Bremen
-Schalke 04
-Mainz 05
-Borussia Dortmund
-Borussia M.Gladbach
-Eintracht Frankfurt
-VfB Stuttgart
-FC Cologne
-Freiburg
-RasenBallsport Leipzig
-Paderborn
-Union Berlin
-Elversberg
-
-Serie_A
-Roma
-Lazio
-Bologna
-Juventus
-Udinese
-Genoa
-Sassuolo
-Napoli
-Inter
-Atalanta
-Fiorentina
-AC Milan
-Frosinone
-Torino
-Cagliari
-Parma Calcio 1913
-Lecce
-Venezia
-Monza
-Como
-
-Ligue_1
-Lille
-Paris Saint Germain
-Rennes
-Marseille
-Angers
-Nice
-Monaco
-Troyes
-Toulouse
-Lyon
-Lorient
-Lens
-Strasbourg
-Brest
-Auxerre
-Le Havre
-Paris FC
-Le Mans
-
-RFPL
-Spartak Moscow
-CSKA Moscow
-Rubin Kazan
-FC Rostov
-FK Akhmat
-Zenit St. Petersburg
-Dinamo Moscow
-Lokomotiv Moscow
-Krylya Sovetov Samara
-FC Krasnodar
-FC Orenburg
-Fakel
-Baltika
-Akron
-Dynamo Makhachkala
-Rodina
-"""
-
 import math
+import argparse
 import numpy as np
 import pandas as pd
 from understatapi import UnderstatClient
@@ -136,11 +9,10 @@ from understatapi import UnderstatClient
 # CONFIG
 # ============================================================
 
-SEASON = 2026
-TEAM = "Arsenal"
-N_MATCHES = 10
-OPPONENT_N_MATCHES = 5
-
+DEFAULT_SEASON = 2026
+DEFAULT_TEAM = "Arsenal"
+DEFAULT_N_MATCHES = 5
+DEFAULT_OPPONENT_N_MATCHES = 5
 
 POSITION_MAP = {
 
@@ -1600,6 +1472,7 @@ def get_last_n_match_baselines(
     team,
     season,
     n,
+    opponent_n_matches,
 ):
 
     # --------------------------------------------------------
@@ -1848,7 +1721,7 @@ def get_last_n_match_baselines(
         get_opponent_baselines(
             matches=matches,
             main_team=team,
-            n=OPPONENT_N_MATCHES,
+            n=opponent_n_matches,
         )
     )
 
@@ -1863,25 +1736,57 @@ def get_last_n_match_baselines(
     )
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Load data."
+    )
+
+    parser.add_argument(
+        "--season",
+        type=int,
+        default=DEFAULT_SEASON,
+    )
+
+    parser.add_argument(
+        "--team",
+        type=str,
+        default=DEFAULT_TEAM,
+    )
+
+    parser.add_argument(
+        "--n-matches",
+        type=int,
+        default=DEFAULT_N_MATCHES,
+    )
+
+    parser.add_argument(
+        "--opponent-n-matches",
+        type=int,
+        default=DEFAULT_OPPONENT_N_MATCHES,
+    )
+
+    return parser.parse_args()
+
+
 # ============================================================
 # RUN
 # ============================================================
 
+args = parse_args()
+
 df, player_df, opponent_df = (
     get_last_n_match_baselines(
-        team=TEAM,
-        season=SEASON,
-        n=N_MATCHES,
+        team=args.team,
+        season=args.season,
+        n=args.n_matches,
+        opponent_n_matches=args.opponent_n_matches,
     )
 )
-
 
 # ============================================================
 # OUTPUT
 # ============================================================
 
-print(df)
-print()
-print(player_df)
-print()
-print(opponent_df)
+df.to_csv('output/baseline.csv', index=False)
+player_df.to_csv('output/context.csv', index=False)
+opponent_df.to_csv('output/opponents.csv', index=False)

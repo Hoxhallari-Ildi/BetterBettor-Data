@@ -1,0 +1,61 @@
+name: Soccer
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season (2026 -> 2026/27)"
+        required: true
+        default: "2026"
+        type: string
+
+      team:
+        description: "Team (Manchester United)"
+        required: true
+        default: "Arsenal"
+        type: string
+
+      n_matches:
+        description: "Number of recent matches"
+        required: true
+        default: "5"
+        type: string
+
+      opponent_n_matches:
+        description: "Number of previous opponent matches"
+        required: true
+        default: "5"
+        type: string
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Load Data
+        run: |
+          python scrapers/soccer.py \
+            --season "${{ inputs.season }}" \
+            --team "${{ inputs.team }}" \
+            --n-matches "${{ inputs.n_matches }}" \
+            --opponent-n-matches "${{ inputs.opponent_n_matches }}"
+
+      - name: Upload generated CSVs
+        uses: actions/upload-artifact@v4
+        with:
+          name: data
+          path: output/*.csv
+          retention-days: 1

@@ -199,7 +199,8 @@ jobs:
             --season "${{ inputs.season }}" \
             --team "${{ inputs.team }}" \
             --n-matches "${{ inputs.n_matches }}" \
-            --opponent-n-matches "${{ inputs.opponent_n_matches }}"
+            --opponent-n-matches "${{ inputs.opponent_n_matches }}" \
+            --league "${{ inputs.league }}"
 
       - name: Check CSVs were generated
         run: |

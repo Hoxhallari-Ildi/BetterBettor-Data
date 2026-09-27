@@ -7,6 +7,7 @@ on:
       season:
         description: "Season (2026 -> 2026/27)"
         required: true
+        default: "Enter Season"
         type: string
 
       league:

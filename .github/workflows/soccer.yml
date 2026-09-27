@@ -1,5 +1,5 @@
-name: Soccer
-run-name: ${{ inputs.team }} · ${{ inputs.season }}
+name: ${{ inputs.league }} · ${{ inputs.season }}
+run-name: ${{ inputs.home_team }} vs ${{ inputs.away_team }} 
 
 on:
   workflow_dispatch:
@@ -7,15 +7,15 @@ on:
       season:
         description: "Season (2026 -> 2026/27)"
         required: true
-        default: "2026"
         type: string
 
       league:
         description: "League"
         required: true
-        default: "EPL"
+        default: "Select League"
         type: choice
         options:
+          - Select League
           - EPL
           - La_Liga
           - Bundesliga
@@ -23,12 +23,144 @@ on:
           - Ligue_1
           - RFPL
 
-      team:
-        description: "Team"
+      home_team:
+        description: "Home Team"
         required: true
-        default: "Arsenal"
+        default: "Select Home Team"
         type: choice
         options:
+          - Select Home Team
+          # EPL
+          - Aston Villa
+          - Everton
+          - Bournemouth
+          - Sunderland
+          - Crystal Palace
+          - Chelsea
+          - Tottenham
+          - Arsenal
+          - Newcastle United
+          - Liverpool
+          - Manchester City
+          - Manchester United
+          - Hull
+          - Brighton
+          - Fulham
+          - Brentford
+          - Leeds
+          - Nottingham Forest
+          - Ipswich
+          - Coventry
+
+          # La Liga
+          - Malaga
+          - Sevilla
+          - Deportivo La Coruna
+          - Real Sociedad
+          - Espanyol
+          - Getafe
+          - Atletico Madrid
+          - Rayo Vallecano
+          - Valencia
+          - Athletic Club
+          - Barcelona
+          - Real Madrid
+          - Levante
+          - Celta Vigo
+          - Real Betis
+          - Villarreal
+          - Osasuna
+          - Alaves
+          - Elche
+          - Racing Santander
+
+          # Bundesliga
+          - Bayern Munich
+          - Hamburger SV
+          - Bayer Leverkusen
+          - Hoffenheim
+          - Augsburg
+          - Werder Bremen
+          - Schalke 04
+          - Mainz 05
+          - Borussia Dortmund
+          - Borussia M.Gladbach
+          - Eintracht Frankfurt
+          - VfB Stuttgart
+          - FC Cologne
+          - Freiburg
+          - RasenBallsport Leipzig
+          - Paderborn
+          - Union Berlin
+          - Elversberg
+
+          # Serie A
+          - Roma
+          - Lazio
+          - Bologna
+          - Juventus
+          - Udinese
+          - Genoa
+          - Sassuolo
+          - Napoli
+          - Inter
+          - Atalanta
+          - Fiorentina
+          - AC Milan
+          - Frosinone
+          - Torino
+          - Cagliari
+          - Parma Calcio 1913
+          - Lecce
+          - Venezia
+          - Monza
+          - Como
+
+          # Ligue 1
+          - Lille
+          - Paris Saint Germain
+          - Rennes
+          - Marseille
+          - Angers
+          - Nice
+          - Monaco
+          - Troyes
+          - Toulouse
+          - Lyon
+          - Lorient
+          - Lens
+          - Strasbourg
+          - Brest
+          - Auxerre
+          - Le Havre
+          - Paris FC
+          - Le Mans
+
+          # RFPL
+          - Spartak Moscow
+          - CSKA Moscow
+          - Rubin Kazan
+          - FC Rostov
+          - FK Akhmat
+          - Zenit St. Petersburg
+          - Dinamo Moscow
+          - Lokomotiv Moscow
+          - Krylya Sovetov Samara
+          - FC Krasnodar
+          - FC Orenburg
+          - Fakel
+          - Baltika
+          - Akron
+          - Dynamo Makhachkala
+          - Rodina
+
+      away_team:
+        description: "Away Team"
+        required: true
+        default: "Select Away Team"
+        type: choice
+        options:
+          - Select Away Team
           # EPL
           - Aston Villa
           - Everton
@@ -191,21 +323,43 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create output directory
-        run: mkdir -p output
+      - name: Create output directories
+        run: |
+          mkdir -p output/home
+          mkdir -p output/away
 
-      - name: Load Data
+      - name: Load Home Team Data
         run: |
           python scrapers/soccer.py \
             --season "${{ inputs.season }}" \
-            --team "${{ inputs.team }}" \
+            --team "${{ inputs.home_team }}" \
             --n-matches "${{ inputs.n_matches }}" \
             --opponent-n-matches "${{ inputs.opponent_n_matches }}" \
             --league "${{ inputs.league }}"
 
+          cp output/*.csv output/home/
+
+      - name: Load Away Team Data
+        run: |
+          rm -f output/*.csv
+
+          python scrapers/soccer.py \
+            --season "${{ inputs.season }}" \
+            --team "${{ inputs.away_team }}" \
+            --n-matches "${{ inputs.n_matches }}" \
+            --opponent-n-matches "${{ inputs.opponent_n_matches }}" \
+            --league "${{ inputs.league }}"
+
+          cp output/*.csv output/away/
+
       - name: Check CSVs were generated
         run: |
-          ls -lh output/*.csv
+          echo "Home team CSVs:"
+          ls -lh output/home/*.csv
+
+          echo ""
+          echo "Away team CSVs:"
+          ls -lh output/away/*.csv
 
       - name: Create data page
         run: |
@@ -215,47 +369,74 @@ jobs:
           from pathlib import Path
 
           output = Path("output")
+
+          teams = [
+              ("Baseline - Home Team", output / "home"),
+              ("Baseline - Away Team", output / "away"),
+          ]
+
           sections = []
 
-          for csv_file in sorted(output.glob("*.csv")):
-              with csv_file.open(newline="", encoding="utf-8") as f:
-                  rows = list(csv.reader(f))
+          for label, team_dir in teams:
+              team_sections = []
 
-              if not rows:
-                  continue
+              for csv_file in sorted(team_dir.glob("*.csv")):
+                  with csv_file.open(newline="", encoding="utf-8") as f:
+                      rows = list(csv.reader(f))
 
-              headers = rows[0]
-              data = rows[1:]
+                  if not rows:
+                      continue
 
-              table = [
-                  f"<h2>{escape(csv_file.stem)}</h2>",
-                  "<table>",
-                  "<thead><tr>",
-                  "".join(f"<th>{escape(h)}</th>" for h in headers),
-                  "</tr></thead>",
-                  "<tbody>",
-              ]
+                  headers = rows[0]
+                  data = rows[1:]
 
-              for row in data:
-                  table.append(
-                      "<tr>"
-                      + "".join(f"<td>{escape(cell)}</td>" for cell in row)
-                      + "</tr>"
-                  )
+                  table = [
+                      f"<h3>{escape(csv_file.stem)}</h3>",
+                      "<table>",
+                      "<thead><tr>",
+                      "".join(
+                          f"<th>{escape(h)}</th>"
+                          for h in headers
+                      ),
+                      "</tr></thead>",
+                      "<tbody>",
+                  ]
 
-              table.extend([
-                  "</tbody>",
-                  "</table>",
-              ])
+                  for row in data:
+                      table.append(
+                          "<tr>"
+                          + "".join(
+                              f"<td>{escape(cell)}</td>"
+                              for cell in row
+                          )
+                          + "</tr>"
+                      )
 
-              sections.append("\n".join(table))
+                  table.extend([
+                      "</tbody>",
+                      "</table>",
+                  ])
+
+                  team_sections.append("\n".join(table))
+
+              sections.append(f"""
+                <section>
+                  <h2>{escape(label)}</h2>
+                  {''.join(team_sections)}
+                </section>
+              """)
 
           html = f"""<!doctype html>
           <html>
           <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>Soccer Data</title>
+            <title>
+              {escape("${{ inputs.home_team }}")}
+              vs
+              {escape("${{ inputs.away_team }}")}
+            </title>
+
             <style>
               body {{
                 font-family: Arial, sans-serif;
@@ -265,11 +446,27 @@ jobs:
               }}
 
               h1 {{
-                margin-bottom: 30px;
+                margin-bottom: 10px;
+              }}
+
+              .match-info {{
+                margin-bottom: 40px;
+                font-size: 18px;
+              }}
+
+              section {{
+                margin-bottom: 60px;
               }}
 
               h2 {{
                 margin-top: 40px;
+                padding: 15px;
+                background: #222;
+                color: white;
+              }}
+
+              h3 {{
+                margin-top: 30px;
               }}
 
               table {{
@@ -287,7 +484,7 @@ jobs:
               }}
 
               th {{
-                background: #222;
+                background: #444;
                 color: white;
                 position: sticky;
                 top: 0;
@@ -302,19 +499,30 @@ jobs:
               }}
             </style>
           </head>
-          <body>
-            <h1>Soccer Data</h1>
 
-            {''.join(
-                f'<div class="table-container">{section}</div>'
-                for section in sections
-            )}
+          <body>
+            <h1>
+              {escape("${{ inputs.home_team }}")}
+              vs
+              {escape("${{ inputs.away_team }}")}
+            </h1>
+
+            <div class="match-info">
+              Season: {escape("${{ inputs.season }}")}
+              &nbsp; | &nbsp;
+              League: {escape("${{ inputs.league }}")}
+            </div>
+
+            {''.join(sections)}
 
           </body>
           </html>
           """
 
-          (output / "index.html").write_text(html, encoding="utf-8")
+          (output / "index.html").write_text(
+              html,
+              encoding="utf-8"
+          )
           PY
 
       - name: Configure GitHub Pages
@@ -327,4 +535,4 @@ jobs:
 
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4      
+        uses: actions/deploy-pages@v4

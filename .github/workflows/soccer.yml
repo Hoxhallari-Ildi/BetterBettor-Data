@@ -1,4 +1,4 @@
-name: ${{ inputs.league }} · ${{ inputs.season }}
+name: Soccer
 run-name: ${{ inputs.home_team }} vs ${{ inputs.away_team }} 
 
 on:

@@ -1,6 +1,6 @@
 name: Hockey
 
-run-name: ${{ inputs.team }}
+run-name: ${{ inputs.home_team }} vs ${{ inputs.away_team }}
 
 on:
   workflow_dispatch:
@@ -11,13 +11,54 @@ on:
         default: "2026"
         type: string
 
-      team:
-        description: "NHL Team"
+      home_team:
+        description: "Home Team"
         required: true
-        default: "Select Team"
+        default: "Select Home Team"
         type: choice
         options:
-          - Select Team
+          - Select Home Team
+          - BOS
+          - ANA
+          - ARI
+          - BUF
+          - CAR
+          - CBJ
+          - CGY
+          - CHI
+          - COL
+          - DAL
+          - DET
+          - EDM
+          - FLA
+          - LAK
+          - MIN
+          - MTL
+          - NJD
+          - NSH
+          - NYI
+          - NYR
+          - OTT
+          - PHI
+          - PIT
+          - SEA
+          - SJS
+          - STL
+          - TBL
+          - TOR
+          - UTA
+          - VAN
+          - VGK
+          - WPG
+          - WSH
+
+      away_team:
+        description: "Away Team"
+        required: true
+        default: "Select Away Team"
+        type: choice
+        options:
+          - Select Away Team
           - BOS
           - ANA
           - ARI
@@ -108,26 +149,47 @@ jobs:
 
 
       # ==========================================================
-      # CREATE OUTPUT DIRECTORY
+      # CREATE OUTPUT DIRECTORIES
       # ==========================================================
 
-      - name: Create output directory
+      - name: Create output directories
         run: |
-          mkdir -p output
+          mkdir -p output/home
+          mkdir -p output/away
 
 
       # ==========================================================
-      # LOAD HOCKEY DATA
+      # LOAD HOME TEAM DATA
       # ==========================================================
 
-      - name: Load Hockey Data
+      - name: Load Home Team Data
         run: |
           python scrapers/hockey.py \
             --season "${{ inputs.season }}" \
-            --team "${{ inputs.team }}" \
+            --team "${{ inputs.home_team }}" \
             --matches "${{ inputs.n_matches }}" \
             --opponent-matches "${{ inputs.opponent_n_matches }}" \
             --output-dir output
+
+          cp output/*.csv output/home/
+
+
+      # ==========================================================
+      # LOAD AWAY TEAM DATA
+      # ==========================================================
+
+      - name: Load Away Team Data
+        run: |
+          rm -f output/*.csv
+
+          python scrapers/hockey.py \
+            --season "${{ inputs.season }}" \
+            --team "${{ inputs.away_team }}" \
+            --matches "${{ inputs.n_matches }}" \
+            --opponent-matches "${{ inputs.opponent_n_matches }}" \
+            --output-dir output
+
+          cp output/*.csv output/away/
 
 
       # ==========================================================
@@ -136,12 +198,12 @@ jobs:
 
       - name: Check CSVs were generated
         run: |
-          echo "Generated files:"
-          ls -lh output/
+          echo "Home team CSVs:"
+          ls -lh output/home/*.csv
 
           echo ""
-          echo "CSV files:"
-          ls -lh output/*.csv
+          echo "Away team CSVs:"
+          ls -lh output/away/*.csv
 
 
       # ==========================================================
@@ -157,71 +219,69 @@ jobs:
 
           output = Path("output")
 
-          csv_files = sorted(
-              output.glob("*.csv")
-          )
+          teams = [
+              ("Baseline - Home Team", output / "home"),
+              ("Baseline - Away Team", output / "away"),
+          ]
 
           sections = []
 
-          for csv_file in csv_files:
+          for label, team_dir in teams:
+              team_sections = []
 
-              with csv_file.open(
-                  newline="",
-                  encoding="utf-8"
-              ) as f:
+              for csv_file in sorted(team_dir.glob("*.csv")):
 
-                  rows = list(
-                      csv.reader(f)
-                  )
+                  with csv_file.open(
+                      newline="",
+                      encoding="utf-8"
+                  ) as f:
+                      rows = list(csv.reader(f))
 
-              if not rows:
-                  continue
+                  if not rows:
+                      continue
 
-              headers = rows[0]
-              data = rows[1:]
+                  headers = rows[0]
+                  data = rows[1:]
 
-              table = [
-                  f"<h2>{escape(csv_file.stem)}</h2>",
-                  "<div class='table-container'>",
-                  "<table>",
-                  "<thead>",
-                  "<tr>",
-              ]
+                  table = [
+                      f"<h3>{escape(csv_file.stem)}</h3>",
+                      "<div class='table-container'>",
+                      "<table>",
+                      "<thead><tr>",
+                      "".join(
+                          f"<th>{escape(h)}</th>"
+                          for h in headers
+                      ),
+                      "</tr></thead>",
+                      "<tbody>",
+                  ]
 
-              table.append(
-                  "".join(
-                      f"<th>{escape(h)}</th>"
-                      for h in headers
-                  )
-              )
-
-              table.extend([
-                  "</tr>",
-                  "</thead>",
-                  "<tbody>",
-              ])
-
-              for row in data:
-
-                  table.append(
-                      "<tr>"
-                      + "".join(
-                          f"<td>{escape(cell)}</td>"
-                          for cell in row
+                  for row in data:
+                      table.append(
+                          "<tr>"
+                          + "".join(
+                              f"<td>{escape(cell)}</td>"
+                              for cell in row
+                          )
+                          + "</tr>"
                       )
-                      + "</tr>"
+
+                  table.extend([
+                      "</tbody>",
+                      "</table>",
+                      "</div>",
+                  ])
+
+                  team_sections.append(
+                      "\n".join(table)
                   )
 
-              table.extend([
-                  "</tbody>",
-                  "</table>",
-                  "</div>",
-              ])
-
-              sections.append(
-                  "\n".join(table)
-              )
-
+              sections.append(f"""
+                <section>
+                  <h2>{escape(label)}</h2>
+                  {''.join(team_sections)}
+                </section>
+              """)
 
           html = f"""<!doctype html>
           <html>
@@ -236,8 +296,9 @@ jobs:
             >
 
             <title>
-              {escape("${{ inputs.team }}")}
-              Hockey Data
+              {escape("${{ inputs.home_team }}")}
+              vs
+              {escape("${{ inputs.away_team }}")}
             </title>
 
             <style>
@@ -258,11 +319,19 @@ jobs:
                 font-size: 18px;
               }}
 
+              section {{
+                margin-bottom: 60px;
+              }}
+
               h2 {{
                 margin-top: 40px;
                 padding: 15px;
                 background: #222;
                 color: white;
+              }}
+
+              h3 {{
+                margin-top: 30px;
               }}
 
               table {{
@@ -300,12 +369,12 @@ jobs:
 
           </head>
 
-
           <body>
 
             <h1>
-              {escape("${{ inputs.team }}")}
-              Hockey Data
+              {escape("${{ inputs.home_team }}")}
+              vs
+              {escape("${{ inputs.away_team }}")}
             </h1>
 
             <div class="match-info">

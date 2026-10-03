@@ -1,5 +1,7 @@
 import io
+import math
 import requests
+import numpy as np
 import pandas as pd
 
 
@@ -11,6 +13,57 @@ DEFAULT_SEASON = 2026
 DEFAULT_TEAM = "BOS"
 DEFAULT_N_MATCHES = 3
 DEFAULT_OPPONENT_N_MATCHES = 10
+
+def expected_points(
+    xgf,
+    xga,
+    max_goals=10,
+):
+    """
+    Calculate expected points from expected goals.
+
+    Uses independent Poisson distributions for
+    goals scored and goals conceded.
+
+    xPts = 3 * P(win) + 1 * P(draw)
+    """
+
+    xgf_probs = [
+        np.exp(-xgf)
+        * (xgf ** k)
+        / math.factorial(k)
+        for k in range(max_goals + 1)
+    ]
+
+    xga_probs = [
+        np.exp(-xga)
+        * (xga ** k)
+        / math.factorial(k)
+        for k in range(max_goals + 1)
+    ]
+
+    win_prob = 0.0
+    draw_prob = 0.0
+
+    for goals_for in range(max_goals + 1):
+
+        for goals_against in range(max_goals + 1):
+
+            probability = (
+                xgf_probs[goals_for]
+                * xga_probs[goals_against]
+            )
+
+            if goals_for > goals_against:
+                win_prob += probability
+
+            elif goals_for == goals_against:
+                draw_prob += probability
+
+    return (
+        2 * win_prob
+        + draw_prob
+    )
 
 # ============================================================
 # MONEYPUCK CLIENT
@@ -478,6 +531,14 @@ def get_last_n_matches(team, n):
         .reset_index(drop=True)
     )
 
+    lines["gameDate"] = pd.to_datetime(
+        lines["gameDate"],
+        format="%Y%m%d"
+    ).dt.date
+    lines = lines[lines["gameId"].isin(recent_game_ids)]
+    print(lines)
+
     return games
 
-print(get_last_n_matches('BOS', 3))
+games = get_last_n_matches('BOS', 3)
+print(games)

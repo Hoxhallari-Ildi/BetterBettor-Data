@@ -2,13 +2,25 @@ import io
 import time
 import requests
 import pandas as pd
+
 from functools import lru_cache
+import argparse
+import os
+
+
+# ============================================================
+# DEFAULT SETTINGS
+# ============================================================
 
 DEFAULT_SEASON = 2026
 DEFAULT_TEAM = "BOS"
 DEFAULT_N_MATCHES = 3
 DEFAULT_OPPONENT_N_MATCHES = 10
 
+
+# ============================================================
+# LOAD MONEYPUCK DATA
+# ============================================================
 
 @lru_cache(maxsize=None)
 def _load_data_cached(season, team):
@@ -19,9 +31,21 @@ def _load_data_cached(season, team):
     team/season files.
     """
 
-    data_types = ["skaters", "goalies", "lines"]
-    game_types = ["regular", "playoffs"]
-    seasons = [season, season - 1]
+    data_types = [
+        "skaters",
+        "goalies",
+        "lines"
+    ]
+
+    game_types = [
+        "regular",
+        "playoffs"
+    ]
+
+    seasons = [
+        season,
+        season - 1
+    ]
 
     headers = {
         "User-Agent": (
@@ -37,9 +61,11 @@ def _load_data_cached(season, team):
     results = {}
 
     for data_type in data_types:
+
         dfs = []
 
         for s in seasons:
+
             for game_type in game_types:
 
                 url = (
@@ -48,7 +74,10 @@ def _load_data_cached(season, team):
                     f"{data_type}/{team}.csv"
                 )
 
-                # Retry a few times if MoneyPuck rate-limits us
+                # ------------------------------------------------
+                # Retry if MoneyPuck rate-limits us
+                # ------------------------------------------------
+
                 for attempt in range(4):
 
                     response = session.get(
@@ -57,7 +86,7 @@ def _load_data_cached(season, team):
                     )
 
                     if response.status_code == 429:
-                        # Always wait when rate-limited.
+
                         wait_time = 5
 
                         print(
@@ -67,14 +96,23 @@ def _load_data_cached(season, team):
                         )
 
                         time.sleep(wait_time)
+
                         continue
 
                     break
+
+                # ------------------------------------------------
+                # File doesn't exist
+                # ------------------------------------------------
 
                 if response.status_code == 404:
                     continue
 
                 response.raise_for_status()
+
+                # ------------------------------------------------
+                # Read CSV
+                # ------------------------------------------------
 
                 df = pd.read_csv(
                     io.BytesIO(response.content)
@@ -85,12 +123,15 @@ def _load_data_cached(season, team):
 
                 dfs.append(df)
 
-    # ------------------------------------------------------------
-    # Store empty DataFrame if nothing was found
-    # ------------------------------------------------------------
+        # --------------------------------------------------------
+        # Store empty DataFrame if nothing was found
+        # --------------------------------------------------------
 
         results[data_type] = (
-            pd.concat(dfs, ignore_index=True)
+            pd.concat(
+                dfs,
+                ignore_index=True
+            )
             if dfs
             else pd.DataFrame()
         )
@@ -102,7 +143,10 @@ def _load_data_cached(season, team):
     )
 
 
-def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
+def load_data(
+    season=DEFAULT_SEASON,
+    team=DEFAULT_TEAM
+):
     """
     Public wrapper around cached data.
 
@@ -121,44 +165,70 @@ def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
         lines.copy()
     )
 
+
 # ============================================================
-# 1. GET LAST N MATCHES
+# GET LAST N MATCHES
 # ============================================================
 
-def get_last_n_matches(team, n):
+def get_last_n_matches(
+    team,
+    n,
+    season=DEFAULT_SEASON
+):
+    """
+    Return the most recent N games for a team.
+
+    Returns:
+        games  - one row per game
+        lines  - line-level data for those games
+    """
 
     skaters, goalies, lines = load_data(
-    season=DEFAULT_SEASON,
-    team=team
-)
+        season=season,
+        team=team
+    )
 
     # ============================================================
-    # Skaters
+    # SKATERS
     # ============================================================
+
+    if skaters.empty:
+        return pd.DataFrame(), pd.DataFrame()
 
     skaters["gameDate"] = pd.to_datetime(
         skaters["gameDate"],
         format="%Y%m%d"
     ).dt.date
 
-    # Keep only games involving the requested team
+    # ------------------------------------------------------------
+    # Keep only games involving requested team
+    # ------------------------------------------------------------
+
     skaters = skaters[
         skaters["playerTeam"] == team
     ]
 
-    # Only use all-situations rows
+    # ------------------------------------------------------------
+    # Only all-situations rows
+    # ------------------------------------------------------------
+
     skaters = skaters[
         skaters["situation"] == "all"
     ]
 
     # ------------------------------------------------------------
-    # Get the team's most recent N games
+    # Get team's most recent N games
     # ------------------------------------------------------------
 
     recent_game_ids = (
-        skaters[["gameId", "gameDate"]]
+        skaters[
+            ["gameId", "gameDate"]
+        ]
         .drop_duplicates("gameId")
-        .sort_values("gameDate", ascending=False)
+        .sort_values(
+            "gameDate",
+            ascending=False
+        )
         .head(n)["gameId"]
     )
 
@@ -166,9 +236,9 @@ def get_last_n_matches(team, n):
         skaters["gameId"].isin(recent_game_ids)
     ]
 
-    # ------------------------------------------------------------
-    # Game-level columns
-    # ------------------------------------------------------------
+    # ============================================================
+    # GAME-LEVEL COLUMNS
+    # ============================================================
 
     first_cols = [
         "gameDate",
@@ -179,24 +249,9 @@ def get_last_n_matches(team, n):
         "home_or_away",
     ]
 
-    # ------------------------------------------------------------
-    # Skater statistics
-    #
-    # These are additive team-level "FOR" statistics.
-    #
-    # The shot-outcome fields are intentionally kept together:
-    #
-    #   shot
-    #       -> goal
-    #       -> rebound
-    #       -> freeze
-    #       -> play stopped
-    #       -> continued in zone
-    #       -> continued outside zone
-    #
-    # Keeping both actual and expected versions lets us later
-    # engineer rates such as rebound generation and conversion.
-    # ------------------------------------------------------------
+    # ============================================================
+    # SKATER STATISTICS
+    # ============================================================
 
     skater_sum_cols = [
 
@@ -261,9 +316,9 @@ def get_last_n_matches(team, n):
         "penaltiesDrawn",
     ]
 
-    # ------------------------------------------------------------
-    # Aggregate skaters to one row per game
-    # ------------------------------------------------------------
+    # ============================================================
+    # AGGREGATE SKATERS TO ONE ROW PER GAME
+    # ============================================================
 
     skater_agg = {
         col: "first"
@@ -280,65 +335,115 @@ def get_last_n_matches(team, n):
         .groupby("gameId")
         .agg(skater_agg)
         .reset_index()
-        .sort_values("gameDate", ascending=False)
+        .sort_values(
+            "gameDate",
+            ascending=False
+        )
         .reset_index(drop=True)
     )
 
-    # ------------------------------------------------------------
-    # Rename skater columns
-    #
-    # These describe what the team produced / generated.
-    # ------------------------------------------------------------
+    # ============================================================
+    # RENAME SKATER COLUMNS
+    # ============================================================
 
     skater_rename_cols = {
 
         # Shot generation
-        "I_F_xOnGoal": "x_on_goal_for",
-        "I_F_xGoals": "x_goals_for",
-        "I_F_shotsOnGoal": "shots_on_goal_for",
-        "I_F_missedShots": "missed_shots_for",
-        "I_F_shotAttempts": "shot_attempts_for",
+
+        "I_F_xOnGoal":
+            "x_on_goal_for",
+
+        "I_F_xGoals":
+            "x_goals_for",
+
+        "I_F_shotsOnGoal":
+            "shots_on_goal_for",
+
+        "I_F_missedShots":
+            "missed_shots_for",
+
+        "I_F_shotAttempts":
+            "shot_attempts_for",
+
         "I_F_unblockedShotAttempts":
             "unblocked_shot_attempts_for",
 
         # Shot outcomes
-        "I_F_xRebounds": "x_rebounds_for",
-        "I_F_rebounds": "rebounds_for",
-        "I_F_reboundGoals": "rebound_goals_for",
 
-        "I_F_xFreeze": "x_freeze_for",
-        "I_F_freeze": "freeze_for",
+        "I_F_xRebounds":
+            "x_rebounds_for",
 
-        "I_F_xPlayStopped": "x_play_stopped_for",
-        "I_F_playStopped": "play_stopped_for",
+        "I_F_rebounds":
+            "rebounds_for",
+
+        "I_F_reboundGoals":
+            "rebound_goals_for",
+
+        "I_F_xFreeze":
+            "x_freeze_for",
+
+        "I_F_freeze":
+            "freeze_for",
+
+        "I_F_xPlayStopped":
+            "x_play_stopped_for",
+
+        "I_F_playStopped":
+            "play_stopped_for",
 
         "I_F_xPlayContinuedInZone":
-            "play_continued_in_zone_for",
+            "x_play_continued_in_zone_for",
+
         "I_F_playContinuedInZone":
             "play_continued_in_zone_for",
 
         "I_F_xPlayContinuedOutsideZone":
             "x_play_continued_outside_zone_for",
+
         "I_F_playContinuedOutsideZone":
             "play_continued_outside_zone_for",
 
         # Scoring
-        "I_F_goals": "goals_for",
+
+        "I_F_goals":
+            "goals_for",
 
         # Team activity
-        "I_F_faceOffsWon": "faceoffs_won_for",
-        "faceoffsLost": "faceoffs_lost_for",
-        "I_F_hits": "hits_for",
-        "I_F_takeaways": "takeaways_for",
-        "I_F_giveaways": "giveaways_for",
-        "I_F_dZoneGiveaways": "d_zone_giveaways_for",
-        "shotsBlockedByPlayer": "shots_blocked_for",
+
+        "I_F_faceOffsWon":
+            "faceoffs_won_for",
+
+        "faceoffsLost":
+            "faceoffs_lost_for",
+
+        "I_F_hits":
+            "hits_for",
+
+        "I_F_takeaways":
+            "takeaways_for",
+
+        "I_F_giveaways":
+            "giveaways_for",
+
+        "I_F_dZoneGiveaways":
+            "d_zone_giveaways_for",
+
+        "shotsBlockedByPlayer":
+            "shots_blocked_for",
 
         # Penalties
-        "penalties": "penalties_for",
-        "I_F_penalityMinutes": "penalty_minutes_for",
-        "penalityMinutesDrawn": "penalty_minutes_drawn_for",
-        "penaltiesDrawn": "penalties_drawn_for",
+
+        "penalties":
+            "penalties_for",
+
+        "I_F_penalityMinutes":
+            "penalty_minutes_for",
+
+        "penalityMinutesDrawn":
+            "penalty_minutes_drawn_for",
+
+        "penaltiesDrawn":
+            "penalties_drawn_for",
     }
 
     skaters = skaters.rename(
@@ -346,61 +451,59 @@ def get_last_n_matches(team, n):
     )
 
     # ============================================================
-    # Goalies
+    # GOALIES
     # ============================================================
+
+    if goalies.empty:
+        return pd.DataFrame(), pd.DataFrame()
 
     goalies["gameDate"] = pd.to_datetime(
         goalies["gameDate"],
         format="%Y%m%d"
     ).dt.date
 
-    # Keep only games involving the requested team
+    # ------------------------------------------------------------
+    # Keep only games involving requested team
+    # ------------------------------------------------------------
+
     goalies = goalies[
         goalies["playerTeam"] == team
     ]
 
-    # Only use all-situations rows
+    # ------------------------------------------------------------
+    # Only all-situations rows
+    # ------------------------------------------------------------
+
     goalies = goalies[
         goalies["situation"] == "all"
     ]
 
     # ------------------------------------------------------------
-    # Use the EXACT same games selected from the skater data.
+    # Use EXACT same games selected from skater data
     # ------------------------------------------------------------
 
     goalies = goalies[
         goalies["gameId"].isin(recent_game_ids)
     ]
 
-    # ------------------------------------------------------------
-    # Goalie statistics to aggregate
-    #
-    # These describe what the team faced / allowed.
-    #
-    # If multiple goalies played in a game, their event totals are
-    # summed so the final row represents the complete team-game.
-    # ------------------------------------------------------------
+    # ============================================================
+    # GOALIE STATISTICS
+    # ============================================================
 
     goalie_sum_cols = [
 
-        # --------------------------------------------------------
         # Shot generation faced
-        # --------------------------------------------------------
 
         "xOnGoal",
         "ongoal",
         "unblocked_shot_attempts",
 
-        # --------------------------------------------------------
         # Expected / actual goals
-        # --------------------------------------------------------
 
         "xGoals",
         "goals",
 
-        # --------------------------------------------------------
         # Shot outcomes faced
-        # --------------------------------------------------------
 
         "xRebounds",
         "rebounds",
@@ -417,16 +520,14 @@ def get_last_n_matches(team, n):
         "xPlayContinuedOutsideZone",
         "playContinuedOutsideZone",
 
-        # --------------------------------------------------------
         # Blocked shots
-        # --------------------------------------------------------
 
         "blocked_shot_attempts",
     ]
 
-    # ------------------------------------------------------------
-    # Aggregate to one row per game
-    # ------------------------------------------------------------
+    # ============================================================
+    # AGGREGATE GOALIES TO ONE ROW PER GAME
+    # ============================================================
 
     goalies = (
         goalies
@@ -435,15 +536,14 @@ def get_last_n_matches(team, n):
         .reset_index()
     )
 
-    # ------------------------------------------------------------
-    # Rename goalie columns
-    #
-    # These describe what the team faced / allowed.
-    # ------------------------------------------------------------
+    # ============================================================
+    # RENAME GOALIE COLUMNS
+    # ============================================================
 
     goalie_rename_cols = {
 
         # Shot generation faced
+
         "xOnGoal":
             "x_on_goal_against",
 
@@ -454,6 +554,7 @@ def get_last_n_matches(team, n):
             "unblocked_shot_attempts_against",
 
         # Expected / actual goals
+
         "xGoals":
             "x_goals_against",
 
@@ -461,6 +562,7 @@ def get_last_n_matches(team, n):
             "goals_against",
 
         # Shot outcomes faced
+
         "xRebounds":
             "x_rebounds_against",
 
@@ -492,6 +594,7 @@ def get_last_n_matches(team, n):
             "play_continued_outside_zone_against",
 
         # Blocked shots
+
         "blocked_shot_attempts":
             "blocked_shot_attempts_against",
     }
@@ -501,7 +604,7 @@ def get_last_n_matches(team, n):
     )
 
     # ============================================================
-    # Merge skater + goalie data
+    # MERGE SKATER + GOALIE DATA
     # ============================================================
 
     games = skaters.merge(
@@ -511,97 +614,303 @@ def get_last_n_matches(team, n):
         suffixes=("", "_goalie")
     )
 
-    # ------------------------------------------------------------
-    # Final ordering
-    # ------------------------------------------------------------
+    # ============================================================
+    # FINAL GAME ORDERING
+    # ============================================================
 
     games = (
         games
-        .sort_values("gameDate", ascending=False)
+        .sort_values(
+            "gameDate",
+            ascending=False
+        )
         .reset_index(drop=True)
     )
 
-    lines["gameDate"] = pd.to_datetime(
-        lines["gameDate"],
-        format="%Y%m%d"
-    ).dt.date
+    # ============================================================
+    # LINES
+    # ============================================================
 
-    lines = lines[
-        (lines["playerTeam"] == team) &
-        (lines["gameId"].isin(recent_game_ids))
-    ].copy()
+    if not lines.empty:
+
+        lines["gameDate"] = pd.to_datetime(
+            lines["gameDate"],
+            format="%Y%m%d"
+        ).dt.date
+
+        lines = lines[
+            (lines["playerTeam"] == team) &
+            (lines["gameId"].isin(recent_game_ids))
+        ].copy()
 
     return games, lines
 
-games, lines = get_last_n_matches(
-    DEFAULT_TEAM,
-    DEFAULT_N_MATCHES
-)
 
-import os
+# ============================================================
+# MAIN PROGRAM
+# ============================================================
 
-# ------------------------------------------------------------
-# Create output directory
-# ------------------------------------------------------------
+def main():
 
-os.makedirs("output", exist_ok=True)
+    # ========================================================
+    # COMMAND-LINE ARGUMENTS
+    # ========================================================
 
+    parser = argparse.ArgumentParser(
+        description=(
+            "Download and process MoneyPuck NHL game data."
+        )
+    )
 
-# ------------------------------------------------------------
-# Save original team's outputs
-# ------------------------------------------------------------
+    parser.add_argument(
+        "--season",
+        type=int,
+        default=DEFAULT_SEASON,
+        help=(
+            f"Season to analyze "
+            f"(default: {DEFAULT_SEASON})"
+        )
+    )
 
-games.to_csv("output/baseline.csv", index=False)
+    parser.add_argument(
+        "--team",
+        type=str,
+        default=DEFAULT_TEAM,
+        help=(
+            f"NHL team abbreviation "
+            f"(default: {DEFAULT_TEAM})"
+        )
+    )
 
-lines = lines.sort_values("gameId").reset_index(drop=True)
-lines.to_csv("output/context.csv", index=False)
+    parser.add_argument(
+        "--matches",
+        type=int,
+        default=DEFAULT_N_MATCHES,
+        help=(
+            f"Number of recent team matches "
+            f"(default: {DEFAULT_N_MATCHES})"
+        )
+    )
 
-print(f"Saved {len(games)} games to output/baseline.csv")
-print(f"Saved {len(lines)} line rows to output/context.csv")
+    parser.add_argument(
+        "--opponent-matches",
+        type=int,
+        default=DEFAULT_OPPONENT_N_MATCHES,
+        help=(
+            f"Number of recent matches per opponent "
+            f"(default: {DEFAULT_OPPONENT_N_MATCHES})"
+        )
+    )
 
+    parser.add_argument(
+        "--output-dir",
+        type=str,
+        default="output",
+        help=(
+            "Directory for output CSV files "
+            "(default: output)"
+        )
+    )
 
-# ------------------------------------------------------------
-# Load and combine opponent game data
-# ------------------------------------------------------------
+    args = parser.parse_args()
 
-opponents = games["opposingTeam"].dropna().unique().tolist()
-print("Opponents:", opponents)
+    # ========================================================
+    # CREATE OUTPUT DIRECTORY
+    # ========================================================
 
-opponent_games_list = []
+    os.makedirs(
+        args.output_dir,
+        exist_ok=True
+    )
 
-for opponent in opponents:
+    # ========================================================
+    # LOAD ORIGINAL TEAM
+    # ========================================================
+
+    print()
+    print("=" * 60)
+    print(
+        f"Loading last {args.matches} games for "
+        f"{args.team}"
+    )
+    print("=" * 60)
+    print()
+
+    games, lines = get_last_n_matches(
+        team=args.team,
+        n=args.matches,
+        season=args.season
+    )
+
+    if games.empty:
+
+        print(
+            f"No games found for {args.team}."
+        )
+
+        return
+
+    # ========================================================
+    # SAVE BASELINE
+    # ========================================================
+
+    baseline_path = os.path.join(
+        args.output_dir,
+        "baseline.csv"
+    )
+
+    games.to_csv(
+        baseline_path,
+        index=False
+    )
 
     print(
-        f"Loading last {DEFAULT_OPPONENT_N_MATCHES} "
-        f"games for {opponent}..."
+        f"Saved {len(games)} games to "
+        f"{baseline_path}"
     )
 
-    opponent_games, _ = get_last_n_matches(
-        opponent,
-        DEFAULT_OPPONENT_N_MATCHES
+    # ========================================================
+    # SAVE LINE CONTEXT
+    # ========================================================
+
+    context_path = os.path.join(
+        args.output_dir,
+        "context.csv"
     )
 
-    if not opponent_games.empty:
-        opponent_games_list.append(opponent_games)
+    lines = (
+        lines
+        .sort_values("gameId")
+        .reset_index(drop=True)
+    )
 
-# Combine all opponent game DataFrames into one DataFrame.
-opponents_games = (
-    pd.concat(opponent_games_list, ignore_index=True)
-    if opponent_games_list
-    else pd.DataFrame()
-)
+    lines.to_csv(
+        context_path,
+        index=False
+    )
 
-# ------------------------------------------------------------
-# Remove games where the opponent was the original team
-# ------------------------------------------------------------
+    print(
+        f"Saved {len(lines)} line rows to "
+        f"{context_path}"
+    )
 
-opponents_games = opponents_games[
-    opponents_games["opposingTeam"] != DEFAULT_TEAM
-].reset_index(drop=True)
+    # ========================================================
+    # FIND OPPONENTS
+    # ========================================================
 
-opponents_games.to_csv("output/opponents.csv", index=False)
+    opponents = (
+        games["opposingTeam"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
 
-print(
-    f"Saved {len(opponents_games)} opponent games "
-    f"to output/opponents.csv"
-)
+    print()
+    print("Opponents:")
+    print(opponents)
+    print()
+
+    # ========================================================
+    # LOAD OPPONENT GAMES
+    # ========================================================
+
+    opponent_games_list = []
+
+    for opponent in opponents:
+
+        print(
+            f"Loading last "
+            f"{args.opponent_matches} "
+            f"games for {opponent}..."
+        )
+
+        opponent_games, _ = get_last_n_matches(
+            team=opponent,
+            n=args.opponent_matches,
+            season=args.season
+        )
+
+        if not opponent_games.empty:
+
+            opponent_games_list.append(
+                opponent_games
+            )
+
+    # ========================================================
+    # COMBINE OPPONENT DATA
+    # ========================================================
+
+    if opponent_games_list:
+
+        opponents_games = pd.concat(
+            opponent_games_list,
+            ignore_index=True
+        )
+
+    else:
+
+        opponents_games = pd.DataFrame()
+
+    # ========================================================
+    # REMOVE GAMES WHERE OPPONENT PLAYED ORIGINAL TEAM
+    # ========================================================
+
+    if not opponents_games.empty:
+
+        opponents_games = opponents_games[
+            opponents_games["opposingTeam"] != args.team
+        ].reset_index(drop=True)
+
+    # ========================================================
+    # SAVE OPPONENT DATA
+    # ========================================================
+
+    opponents_path = os.path.join(
+        args.output_dir,
+        "opponents.csv"
+    )
+
+    opponents_games.to_csv(
+        opponents_path,
+        index=False
+    )
+
+    print(
+        f"Saved {len(opponents_games)} opponent games "
+        f"to {opponents_path}"
+    )
+
+    # ========================================================
+    # FINISHED
+    # ========================================================
+
+    print()
+    print("=" * 60)
+    print("DONE")
+    print("=" * 60)
+    print()
+    print(f"Output directory: {args.output_dir}")
+    print()
+    print("Files created:")
+
+    print(
+        f"  - {baseline_path}"
+    )
+
+    print(
+        f"  - {context_path}"
+    )
+
+    print(
+        f"  - {opponents_path}"
+    )
+
+    print()
+
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+if __name__ == "__main__":
+    main()

@@ -1,13 +1,8 @@
 import io
-import math
+import time
 import requests
-import numpy as np
 import pandas as pd
-
-
-# ============================================================
-# CONFIG
-# ============================================================
+from functools import lru_cache
 
 DEFAULT_SEASON = 2026
 DEFAULT_TEAM = "BOS"
@@ -15,11 +10,14 @@ DEFAULT_N_MATCHES = 3
 DEFAULT_OPPONENT_N_MATCHES = 10
 
 
-# ============================================================
-# MONEYPUCK CLIENT
-# ============================================================
+@lru_cache(maxsize=None)
+def _load_data_cached(season, team):
+    """
+    Download MoneyPuck data once per (season, team).
 
-def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
+    The lru_cache prevents repeatedly downloading the same
+    team/season files.
+    """
 
     data_types = ["skaters", "goalies", "lines"]
     game_types = ["regular", "playoffs"]
@@ -32,6 +30,9 @@ def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
             "Chrome/140.0.0.0 Safari/537.36"
         )
     }
+
+    session = requests.Session()
+    session.headers.update(headers)
 
     results = {}
 
@@ -47,30 +48,46 @@ def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
                     f"{data_type}/{team}.csv"
                 )
 
-                response = requests.get(
-                    url,
-                    headers=headers,
-                    timeout=30
-                )
+                # Retry a few times if MoneyPuck rate-limits us
+                for attempt in range(4):
+
+                    response = session.get(
+                        url,
+                        timeout=30
+                    )
+
+                    if response.status_code == 429:
+                        # Always wait when rate-limited.
+                        wait_time = 5
+
+                        print(
+                            f"MoneyPuck rate limit for {team} "
+                            f"({data_type}, {s}, {game_type}). "
+                            f"Waiting {wait_time}s..."
+                        )
+
+                        time.sleep(wait_time)
+                        continue
+
+                    break
 
                 if response.status_code == 404:
                     continue
 
                 response.raise_for_status()
 
-                df = pd.read_csv(io.BytesIO(response.content))
-                df = pd.concat(
-                    [
-                        df,
-                        pd.DataFrame({
-                            "season": s,
-                            "game_type": game_type,
-                        }, index=df.index)
-                    ],
-                    axis=1
+                df = pd.read_csv(
+                    io.BytesIO(response.content)
                 )
 
+                df["season"] = s
+                df["game_type"] = game_type
+
                 dfs.append(df)
+
+    # ------------------------------------------------------------
+    # Store empty DataFrame if nothing was found
+    # ------------------------------------------------------------
 
         results[data_type] = (
             pd.concat(dfs, ignore_index=True)
@@ -84,13 +101,36 @@ def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
         results["lines"]
     )
 
+
+def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
+    """
+    Public wrapper around cached data.
+
+    Return copies so that get_last_n_matches() can safely modify
+    columns without modifying the cached DataFrames.
+    """
+
+    skaters, goalies, lines = _load_data_cached(
+        season,
+        team
+    )
+
+    return (
+        skaters.copy(),
+        goalies.copy(),
+        lines.copy()
+    )
+
 # ============================================================
 # 1. GET LAST N MATCHES
 # ============================================================
 
 def get_last_n_matches(team, n):
 
-    skaters, goalies, lines = load_data()
+    skaters, goalies, lines = load_data(
+    season=DEFAULT_SEASON,
+    team=team
+)
 
     # ============================================================
     # Skaters
@@ -485,10 +525,83 @@ def get_last_n_matches(team, n):
         lines["gameDate"],
         format="%Y%m%d"
     ).dt.date
-    lines = lines[lines["gameId"].isin(recent_game_ids)]
-    print(lines)
 
-    return games
+    lines = lines[
+        (lines["playerTeam"] == team) &
+        (lines["gameId"].isin(recent_game_ids))
+    ].copy()
 
-games = get_last_n_matches('BOS', 3)
-print(games)
+    return games, lines
+
+games, lines = get_last_n_matches(
+    DEFAULT_TEAM,
+    DEFAULT_N_MATCHES
+)
+
+import os
+
+# ------------------------------------------------------------
+# Create output directory
+# ------------------------------------------------------------
+
+os.makedirs("output", exist_ok=True)
+
+
+# ------------------------------------------------------------
+# Save original team's outputs
+# ------------------------------------------------------------
+
+games.to_csv("output/baseline.csv", index=False)
+
+lines = lines.sort_values("gameId").reset_index(drop=True)
+lines.to_csv("output/context.csv", index=False)
+
+print(f"Saved {len(games)} games to output/baseline.csv")
+print(f"Saved {len(lines)} line rows to output/context.csv")
+
+
+# ------------------------------------------------------------
+# Load and combine opponent game data
+# ------------------------------------------------------------
+
+opponents = games["opposingTeam"].dropna().unique().tolist()
+print("Opponents:", opponents)
+
+opponent_games_list = []
+
+for opponent in opponents:
+
+    print(
+        f"Loading last {DEFAULT_OPPONENT_N_MATCHES} "
+        f"games for {opponent}..."
+    )
+
+    opponent_games, _ = get_last_n_matches(
+        opponent,
+        DEFAULT_OPPONENT_N_MATCHES
+    )
+
+    if not opponent_games.empty:
+        opponent_games_list.append(opponent_games)
+
+# Combine all opponent game DataFrames into one DataFrame.
+opponents_games = (
+    pd.concat(opponent_games_list, ignore_index=True)
+    if opponent_games_list
+    else pd.DataFrame()
+)
+
+# ------------------------------------------------------------
+# Remove games where the opponent was the original team
+# ------------------------------------------------------------
+
+opponents_games = opponents_games[
+    opponents_games["opposingTeam"] != DEFAULT_TEAM
+].reset_index(drop=True)
+
+opponents_games.to_csv("output/opponents.csv", index=False)
+
+print(
+    f"Saved {len(opponents_games)} opponent games "
+    f"to output/opponents.csv"
+)

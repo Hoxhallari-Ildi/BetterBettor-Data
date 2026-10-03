@@ -87,16 +87,30 @@ def load_data(season=DEFAULT_SEASON, team=DEFAULT_TEAM):
 
 def get_last_n_matches(team, n):
 
-    skaters, goalies, lines = load_data(team=team)
+    skaters, goalies, lines = load_data()
+
+    # ============================================================
+    # Skaters
+    # ============================================================
 
     skaters["gameDate"] = pd.to_datetime(
         skaters["gameDate"],
         format="%Y%m%d"
     ).dt.date
 
+    # Keep only games involving the requested team
     skaters = skaters[
         skaters["playerTeam"] == team
     ]
+
+    # Only use all-situations rows
+    skaters = skaters[
+        skaters["situation"] == "all"
+    ]
+
+    # ------------------------------------------------------------
+    # Get the team's most recent N games
+    # ------------------------------------------------------------
 
     recent_game_ids = (
         skaters[["gameId", "gameDate"]]
@@ -109,6 +123,10 @@ def get_last_n_matches(team, n):
         skaters["gameId"].isin(recent_game_ids)
     ]
 
+    # ------------------------------------------------------------
+    # Game-level columns
+    # ------------------------------------------------------------
+
     first_cols = [
         "gameDate",
         "season",
@@ -118,110 +136,348 @@ def get_last_n_matches(team, n):
         "home_or_away",
     ]
 
-    sum_cols = [
+    # ------------------------------------------------------------
+    # Skater statistics
+    #
+    # These are additive team-level "FOR" statistics.
+    #
+    # The shot-outcome fields are intentionally kept together:
+    #
+    #   shot
+    #       -> goal
+    #       -> rebound
+    #       -> freeze
+    #       -> play stopped
+    #       -> continued in zone
+    #       -> continued outside zone
+    #
+    # Keeping both actual and expected versions lets us later
+    # engineer rates such as rebound generation and conversion.
+    # ------------------------------------------------------------
+
+    skater_sum_cols = [
+
+        # --------------------------------------------------------
+        # Shot generation
+        # --------------------------------------------------------
+
         "I_F_xOnGoal",
         "I_F_xGoals",
-        "I_F_xRebounds",
-        "I_F_primaryAssists",
-        "I_F_secondaryAssists",
         "I_F_shotsOnGoal",
         "I_F_missedShots",
-        "I_F_blockedShotAttempts",
         "I_F_shotAttempts",
-        "I_F_points",
-        "I_F_goals",
+        "I_F_unblockedShotAttempts",
+
+        # --------------------------------------------------------
+        # Shot outcomes
+        # --------------------------------------------------------
+
+        "I_F_xRebounds",
         "I_F_rebounds",
         "I_F_reboundGoals",
+
+        "I_F_xFreeze",
         "I_F_freeze",
+
+        "I_F_xPlayStopped",
         "I_F_playStopped",
+
+        "I_F_xPlayContinuedInZone",
         "I_F_playContinuedInZone",
+
+        "I_F_xPlayContinuedOutsideZone",
         "I_F_playContinuedOutsideZone",
-        "I_F_savedShotsOnGoal",
-        "I_F_savedUnblockedShotAttempts",
-        "penalties",
-        "I_F_penalityMinutes",
+
+        # --------------------------------------------------------
+        # Scoring
+        # --------------------------------------------------------
+
+        "I_F_goals",
+
+        # --------------------------------------------------------
+        # Possession / team activity
+        # --------------------------------------------------------
+
         "I_F_faceOffsWon",
+        "faceoffsLost",
+
         "I_F_hits",
         "I_F_takeaways",
         "I_F_giveaways",
-        "I_F_lowDangerShots",
-        "I_F_mediumDangerShots",
-        "I_F_highDangerShots",
-        "I_F_lowDangerxGoals",
-        "I_F_mediumDangerxGoals",
-        "I_F_highDangerxGoals",
-        "I_F_lowDangerGoals",
-        "I_F_mediumDangerGoals",
-        "I_F_highDangerGoals",
-        "I_F_scoreAdjustedShotsAttempts",
-        "I_F_unblockedShotAttempts",
-        "I_F_scoreAdjustedUnblockedShotAttempts",
         "I_F_dZoneGiveaways",
-        "faceoffsLost",
+
+        "shotsBlockedByPlayer",
+
+        # --------------------------------------------------------
+        # Penalties
+        # --------------------------------------------------------
+
+        "penalties",
+        "I_F_penalityMinutes",
         "penalityMinutesDrawn",
         "penaltiesDrawn",
-        "shotsBlockedByPlayer",
     ]
 
-    agg = {col: "first" for col in first_cols}
-    agg.update({col: "sum" for col in sum_cols})
+    # ------------------------------------------------------------
+    # Aggregate skaters to one row per game
+    # ------------------------------------------------------------
+
+    skater_agg = {
+        col: "first"
+        for col in first_cols
+    }
+
+    skater_agg.update({
+        col: "sum"
+        for col in skater_sum_cols
+    })
 
     skaters = (
         skaters
         .groupby("gameId")
-        .agg(agg)
+        .agg(skater_agg)
         .reset_index()
         .sort_values("gameDate", ascending=False)
         .reset_index(drop=True)
     )
 
-    rename_cols = {
-        "I_F_xOnGoal": "x_on_goal",
-        "I_F_xGoals": "x_goals",
-        "I_F_xRebounds": "x_rebounds",
-        "I_F_primaryAssists": "primary_assists",
-        "I_F_secondaryAssists": "secondary_assists",
-        "I_F_shotsOnGoal": "shots_on_goal",
-        "I_F_missedShots": "missed_shots",
-        "I_F_blockedShotAttempts": "blocked_shot_attempts",
-        "I_F_shotAttempts": "shot_attempts",
-        "I_F_points": "points",
-        "I_F_goals": "goals",
-        "I_F_rebounds": "rebounds",
-        "I_F_reboundGoals": "rebound_goals",
-        "I_F_freeze": "freeze",
-        "I_F_playStopped": "play_stopped",
-        "I_F_playContinuedInZone": "play_continued_in_zone",
-        "I_F_playContinuedOutsideZone": "play_continued_outside_zone",
-        "I_F_savedShotsOnGoal": "saved_shots_on_goal",
-        "I_F_savedUnblockedShotAttempts": "saved_unblocked_shot_attempts",
-        "penalties": "penalties",
-        "I_F_penalityMinutes": "penalty_minutes",
-        "I_F_faceOffsWon": "faceoffs_won",
-        "I_F_hits": "hits",
-        "I_F_takeaways": "takeaways",
-        "I_F_giveaways": "giveaways",
-        "I_F_lowDangerShots": "low_danger_shots",
-        "I_F_mediumDangerShots": "medium_danger_shots",
-        "I_F_highDangerShots": "high_danger_shots",
-        "I_F_lowDangerxGoals": "low_danger_x_goals",
-        "I_F_mediumDangerxGoals": "medium_danger_x_goals",
-        "I_F_highDangerxGoals": "high_danger_x_goals",
-        "I_F_lowDangerGoals": "low_danger_goals",
-        "I_F_mediumDangerGoals": "medium_danger_goals",
-        "I_F_highDangerGoals": "high_danger_goals",
-        "I_F_scoreAdjustedShotsAttempts": "score_adjusted_shot_attempts",
-        "I_F_unblockedShotAttempts": "unblocked_shot_attempts",
-        "I_F_scoreAdjustedUnblockedShotAttempts": "score_adjusted_unblocked_shot_attempts",
-        "I_F_dZoneGiveaways": "d_zone_giveaways",
-        "faceoffsLost": "faceoffs_lost",
-        "penalityMinutesDrawn": "penalty_minutes_drawn",
-        "penaltiesDrawn": "penalties_drawn",
-        "shotsBlockedByPlayer": "shots_blocked",
+    # ------------------------------------------------------------
+    # Rename skater columns
+    #
+    # These describe what the team produced / generated.
+    # ------------------------------------------------------------
+
+    skater_rename_cols = {
+
+        # Shot generation
+        "I_F_xOnGoal": "x_on_goal_for",
+        "I_F_xGoals": "x_goals_for",
+        "I_F_shotsOnGoal": "shots_on_goal_for",
+        "I_F_missedShots": "missed_shots_for",
+        "I_F_shotAttempts": "shot_attempts_for",
+        "I_F_unblockedShotAttempts":
+            "unblocked_shot_attempts_for",
+
+        # Shot outcomes
+        "I_F_xRebounds": "x_rebounds_for",
+        "I_F_rebounds": "rebounds_for",
+        "I_F_reboundGoals": "rebound_goals_for",
+
+        "I_F_xFreeze": "x_freeze_for",
+        "I_F_freeze": "freeze_for",
+
+        "I_F_xPlayStopped": "x_play_stopped_for",
+        "I_F_playStopped": "play_stopped_for",
+
+        "I_F_xPlayContinuedInZone":
+            "play_continued_in_zone_for",
+        "I_F_playContinuedInZone":
+            "play_continued_in_zone_for",
+
+        "I_F_xPlayContinuedOutsideZone":
+            "x_play_continued_outside_zone_for",
+        "I_F_playContinuedOutsideZone":
+            "play_continued_outside_zone_for",
+
+        # Scoring
+        "I_F_goals": "goals_for",
+
+        # Team activity
+        "I_F_faceOffsWon": "faceoffs_won_for",
+        "faceoffsLost": "faceoffs_lost_for",
+        "I_F_hits": "hits_for",
+        "I_F_takeaways": "takeaways_for",
+        "I_F_giveaways": "giveaways_for",
+        "I_F_dZoneGiveaways": "d_zone_giveaways_for",
+        "shotsBlockedByPlayer": "shots_blocked_for",
+
+        # Penalties
+        "penalties": "penalties_for",
+        "I_F_penalityMinutes": "penalty_minutes_for",
+        "penalityMinutesDrawn": "penalty_minutes_drawn_for",
+        "penaltiesDrawn": "penalties_drawn_for",
     }
 
-    skaters = skaters.rename(columns=rename_cols)
+    skaters = skaters.rename(
+        columns=skater_rename_cols
+    )
 
-    return skaters
+    # ============================================================
+    # Goalies
+    # ============================================================
+
+    goalies["gameDate"] = pd.to_datetime(
+        goalies["gameDate"],
+        format="%Y%m%d"
+    ).dt.date
+
+    # Keep only games involving the requested team
+    goalies = goalies[
+        goalies["playerTeam"] == team
+    ]
+
+    # Only use all-situations rows
+    goalies = goalies[
+        goalies["situation"] == "all"
+    ]
+
+    # ------------------------------------------------------------
+    # Use the EXACT same games selected from the skater data.
+    # ------------------------------------------------------------
+
+    goalies = goalies[
+        goalies["gameId"].isin(recent_game_ids)
+    ]
+
+    # ------------------------------------------------------------
+    # Goalie statistics to aggregate
+    #
+    # These describe what the team faced / allowed.
+    #
+    # If multiple goalies played in a game, their event totals are
+    # summed so the final row represents the complete team-game.
+    # ------------------------------------------------------------
+
+    goalie_sum_cols = [
+
+        # --------------------------------------------------------
+        # Shot generation faced
+        # --------------------------------------------------------
+
+        "xOnGoal",
+        "ongoal",
+        "unblocked_shot_attempts",
+
+        # --------------------------------------------------------
+        # Expected / actual goals
+        # --------------------------------------------------------
+
+        "xGoals",
+        "goals",
+
+        # --------------------------------------------------------
+        # Shot outcomes faced
+        # --------------------------------------------------------
+
+        "xRebounds",
+        "rebounds",
+
+        "xFreeze",
+        "freeze",
+
+        "xPlayStopped",
+        "playStopped",
+
+        "xPlayContinuedInZone",
+        "playContinuedInZone",
+
+        "xPlayContinuedOutsideZone",
+        "playContinuedOutsideZone",
+
+        # --------------------------------------------------------
+        # Blocked shots
+        # --------------------------------------------------------
+
+        "blocked_shot_attempts",
+    ]
+
+    # ------------------------------------------------------------
+    # Aggregate to one row per game
+    # ------------------------------------------------------------
+
+    goalies = (
+        goalies
+        .groupby("gameId")[goalie_sum_cols]
+        .sum()
+        .reset_index()
+    )
+
+    # ------------------------------------------------------------
+    # Rename goalie columns
+    #
+    # These describe what the team faced / allowed.
+    # ------------------------------------------------------------
+
+    goalie_rename_cols = {
+
+        # Shot generation faced
+        "xOnGoal":
+            "x_on_goal_against",
+
+        "ongoal":
+            "shots_on_goal_against",
+
+        "unblocked_shot_attempts":
+            "unblocked_shot_attempts_against",
+
+        # Expected / actual goals
+        "xGoals":
+            "x_goals_against",
+
+        "goals":
+            "goals_against",
+
+        # Shot outcomes faced
+        "xRebounds":
+            "x_rebounds_against",
+
+        "rebounds":
+            "rebounds_against",
+
+        "xFreeze":
+            "x_freeze_against",
+
+        "freeze":
+            "freeze_against",
+
+        "xPlayStopped":
+            "x_play_stopped_against",
+
+        "playStopped":
+            "play_stopped_against",
+
+        "xPlayContinuedInZone":
+            "x_play_continued_in_zone_against",
+
+        "playContinuedInZone":
+            "play_continued_in_zone_against",
+
+        "xPlayContinuedOutsideZone":
+            "x_play_continued_outside_zone_against",
+
+        "playContinuedOutsideZone":
+            "play_continued_outside_zone_against",
+
+        # Blocked shots
+        "blocked_shot_attempts":
+            "blocked_shot_attempts_against",
+    }
+
+    goalies = goalies.rename(
+        columns=goalie_rename_cols
+    )
+
+    # ============================================================
+    # Merge skater + goalie data
+    # ============================================================
+
+    games = skaters.merge(
+        goalies,
+        on="gameId",
+        how="inner",
+        suffixes=("", "_goalie")
+    )
+
+    # ------------------------------------------------------------
+    # Final ordering
+    # ------------------------------------------------------------
+
+    games = (
+        games
+        .sort_values("gameDate", ascending=False)
+        .reset_index(drop=True)
+    )
+
+    return games
 
 print(get_last_n_matches('BOS', 3))

@@ -1,0 +1,361 @@
+name: Hockey
+
+run-name: ${{ inputs.team }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      season:
+        description: "Season (2026 -> 2026/27)"
+        required: true
+        default: "2026"
+        type: string
+
+      team:
+        description: "NHL Team"
+        required: true
+        default: "Select Team"
+        type: choice
+        options:
+          - Select Team
+          - BOS
+          - ANA
+          - ARI
+          - BUF
+          - CAR
+          - CBJ
+          - CGY
+          - CHI
+          - COL
+          - DAL
+          - DET
+          - EDM
+          - FLA
+          - LAK
+          - MIN
+          - MTL
+          - NJD
+          - NSH
+          - NYI
+          - NYR
+          - OTT
+          - PHI
+          - PIT
+          - SEA
+          - SJS
+          - STL
+          - TBL
+          - TOR
+          - UTA
+          - VAN
+          - VGK
+          - WPG
+          - WSH
+
+      n_matches:
+        description: "Number of recent matches"
+        required: true
+        default: "3"
+        type: string
+
+      opponent_n_matches:
+        description: "Number of previous opponent matches"
+        required: true
+        default: "10"
+        type: string
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  data-agent:
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      # ==========================================================
+      # PYTHON
+      # ==========================================================
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+
+      # ==========================================================
+      # DEPENDENCIES
+      # ==========================================================
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+
+      # ==========================================================
+      # CREATE OUTPUT DIRECTORY
+      # ==========================================================
+
+      - name: Create output directory
+        run: |
+          mkdir -p output
+
+
+      # ==========================================================
+      # LOAD HOCKEY DATA
+      # ==========================================================
+
+      - name: Load Hockey Data
+        run: |
+          python scrapers/hockey.py \
+            --season "${{ inputs.season }}" \
+            --team "${{ inputs.team }}" \
+            --matches "${{ inputs.n_matches }}" \
+            --opponent-matches "${{ inputs.opponent_n_matches }}" \
+            --output-dir output
+
+
+      # ==========================================================
+      # CHECK CSV FILES
+      # ==========================================================
+
+      - name: Check CSVs were generated
+        run: |
+          echo "Generated files:"
+          ls -lh output/
+
+          echo ""
+          echo "CSV files:"
+          ls -lh output/*.csv
+
+
+      # ==========================================================
+      # CREATE DATA PAGE
+      # ==========================================================
+
+      - name: Create data page
+        run: |
+          python - <<'PY'
+          import csv
+          from html import escape
+          from pathlib import Path
+
+          output = Path("output")
+
+          csv_files = sorted(
+              output.glob("*.csv")
+          )
+
+          sections = []
+
+          for csv_file in csv_files:
+
+              with csv_file.open(
+                  newline="",
+                  encoding="utf-8"
+              ) as f:
+
+                  rows = list(
+                      csv.reader(f)
+                  )
+
+              if not rows:
+                  continue
+
+              headers = rows[0]
+              data = rows[1:]
+
+              table = [
+                  f"<h2>{escape(csv_file.stem)}</h2>",
+                  "<div class='table-container'>",
+                  "<table>",
+                  "<thead>",
+                  "<tr>",
+              ]
+
+              table.append(
+                  "".join(
+                      f"<th>{escape(h)}</th>"
+                      for h in headers
+                  )
+              )
+
+              table.extend([
+                  "</tr>",
+                  "</thead>",
+                  "<tbody>",
+              ])
+
+              for row in data:
+
+                  table.append(
+                      "<tr>"
+                      + "".join(
+                          f"<td>{escape(cell)}</td>"
+                          for cell in row
+                      )
+                      + "</tr>"
+                  )
+
+              table.extend([
+                  "</tbody>",
+                  "</table>",
+                  "</div>",
+              ])
+
+              sections.append(
+                  "\n".join(table)
+              )
+
+
+          html = f"""<!doctype html>
+          <html>
+
+          <head>
+
+            <meta charset="utf-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1"
+            >
+
+            <title>
+              {escape("${{ inputs.team }}")}
+              Hockey Data
+            </title>
+
+            <style>
+
+              body {{
+                font-family: Arial, sans-serif;
+                margin: 30px;
+                background: #f5f5f5;
+                color: #222;
+              }}
+
+              h1 {{
+                margin-bottom: 10px;
+              }}
+
+              .match-info {{
+                margin-bottom: 40px;
+                font-size: 18px;
+              }}
+
+              h2 {{
+                margin-top: 40px;
+                padding: 15px;
+                background: #222;
+                color: white;
+              }}
+
+              table {{
+                border-collapse: collapse;
+                width: 100%;
+                background: white;
+                margin-bottom: 30px;
+                box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+              }}
+
+              th,
+              td {{
+                border: 1px solid #ddd;
+                padding: 8px 12px;
+                text-align: left;
+                white-space: nowrap;
+              }}
+
+              th {{
+                background: #444;
+                color: white;
+                position: sticky;
+                top: 0;
+              }}
+
+              tr:nth-child(even) {{
+                background: #f9f9f9;
+              }}
+
+              .table-container {{
+                overflow-x: auto;
+              }}
+
+            </style>
+
+          </head>
+
+
+          <body>
+
+            <h1>
+              {escape("${{ inputs.team }}")}
+              Hockey Data
+            </h1>
+
+            <div class="match-info">
+
+              Season:
+              {escape("${{ inputs.season }}")}
+
+              &nbsp; | &nbsp;
+
+              Recent Games:
+              {escape("${{ inputs.n_matches }}")}
+
+              &nbsp; | &nbsp;
+
+              Opponent Games:
+              {escape("${{ inputs.opponent_n_matches }}")}
+
+            </div>
+
+            {''.join(sections)}
+
+          </body>
+
+          </html>
+          """
+
+          (
+              output / "index.html"
+          ).write_text(
+              html,
+              encoding="utf-8"
+          )
+
+          PY
+
+
+      # ==========================================================
+      # GITHUB PAGES
+      # ==========================================================
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+
+      - name: Upload site to GitHub Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: output
+
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
